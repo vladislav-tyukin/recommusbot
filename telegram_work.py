@@ -25,7 +25,7 @@ async def start(update: Update, context: CallbackContext):
 
     
     if database.is_new_user(user_id):
-        await update.message.reply_text(f"Привет {username}! Вы новый пользователь. Давайте начнем с теста ваших предпочтений.")
+        await update.message.reply_text(f"Привет {username}! Вы новый пользователь. Давайте начнем!")
         await send_main_menu_new_user(update)
     else:
         await update.message.reply_text(f"С возвращением, {username}! Продолжим с рекомендациями.")
