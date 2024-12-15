@@ -66,11 +66,11 @@ async def start_artist_survey(update: Update, context: CallbackContext):
         query = update.callback_query
         await query.answer() 
         await query.message.reply_text(
-            f"Оцените исполителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
+            f"Оцените исполнителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
         )
     else:
         await update.message.reply_text(
-            f"Оцените исполителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
+            f"Оцените исполнителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
         )
 
 
