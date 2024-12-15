@@ -18,31 +18,28 @@ def load_dataset():
 
 dataset = load_dataset()
 
+current_input_type = None
+
+
 async def start(update: Update, context: CallbackContext):
     user = update.effective_user
     user_id = user.id
     username = user.username
 
-    
     if database.is_new_user(user_id):
         await update.message.reply_text(f"Привет {username}! Вы новый пользователь. Давайте начнем!")
-        await send_main_menu_new_user(update)
+        await main_menu(update, context)
     else:
         await update.message.reply_text(f"С возвращением, {username}! Продолжим с рекомендациями.")
-        await send_main_menu(update)
+        await main_menu(update, context)
 
-    
-async def send_main_menu_new_user(update: Update):
-    keyboard = [
-        [InlineKeyboardButton("Получить рекомендацию", callback_data="get_recommendation")],
-        [InlineKeyboardButton("Оценить жанры", callback_data="start_genre_survey")],
-        [InlineKeyboardButton("Оценить исполнителей", callback_data="start_artist_survey")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
+
 
 
 async def start_genre_survey(update: Update, context: CallbackContext):
+    global current_input_type
+    current_input_type = "genre" 
+
     genres = dataset["genre"].unique().tolist()
     genres_text = "\n".join([f"{genre}" for genre in genres])
 
@@ -59,8 +56,12 @@ async def start_genre_survey(update: Update, context: CallbackContext):
 
 
 async def start_artist_survey(update: Update, context: CallbackContext):
+    global current_input_type
+    current_input_type = "artist"
+
     artists = dataset["artist_name"].unique().tolist()
-    artists_text = "\n".join([f"{artist}" for artist in artists])
+    artists_display = artists[:50]
+    artists_text = "\n".join([f"{artist}" for artist in artists_display])
     if update.callback_query:
         query = update.callback_query
         await query.answer() 
@@ -73,120 +74,104 @@ async def start_artist_survey(update: Update, context: CallbackContext):
         )
 
 
-async def handle_genre_rating(update: Update, context: CallbackContext):
+async def handle_rating(update: Update, context: CallbackContext):
+    global current_input_type
     text = update.message.text
- 
-
+    
     try:
-      
-        track_genre, rating = text.split(" - ")
+        name, rating = text.split(" - ")
         rating = int(rating)
-        track_genre = track_genre.strip() 
+        name = name.strip()
 
         if rating < 1 or rating > 5:
             await update.message.reply_text("Оценка должна быть от 1 до 5.")
             return
 
-        
-        genres = dataset["genre"].unique().tolist()
-        if track_genre not in genres:
-            await update.message.reply_text(f"Жанра '{track_genre}' нет в базе. Пожалуйста, выберите жанр из списка.")
-            return
-
         user = update.message.from_user
         user_id = user.id
-        user_username = user.username
 
-       
-        rated_genres_count = database.get_rated_genres_count(user_id)
-        if rated_genres_count >= 5:
-            await update.message.reply_text("Вы уже оценили 5 жанров. Больше оценивать нельзя.")
-            return
+        if current_input_type == "genre":
+            genres = dataset["genre"].unique().tolist()
+            if name not in genres:
+                await update.message.reply_text(f"Жанра '{name}' нет в базе. Пожалуйста, выберите жанр из списка.")
+                return
 
-        if database.check_genre_rating(user_id, track_genre):
-            await update.message.reply_text(f"Вы уже оценили жанр '{track_genre}'.")
-            return
+            rated_genres_count = database.get_rated_genres_count(user_id)
+            if rated_genres_count >= 5:
+                await update.message.reply_text("Вы уже оценили 5 жанров. Больше оценивать нельзя.")
+                return
 
-        database.add_genre_rating(user_id, user_username, track_genre, rating)
-        await update.message.reply_text(f"Вы оценили жанр '{track_genre}' на {rating}/5.")
+            if database.check_genre_rating(user_id, name):
+                await update.message.reply_text(f"Вы уже оценили жанр '{name}'.")
+                return
 
-        
-        rated_genres_count += 1
-        if rated_genres_count >= 5:
-            await update.message.reply_text("Вы оценили 5 жанров. Переходим к рекомендациям!")
-            await send_recommendation(update, context)
-        else:
-            await update.message.reply_text(f"Оцените ещё {5 - rated_genres_count} жанров.")
+            database.add_genre_rating(user_id, user.username, name, rating)
+            await update.message.reply_text(f"Вы оценили жанр '{name}' на {rating}/5.")
 
-    except ValueError:
-        await update.message.reply_text("Ошибка формата. Используйте формат 'Жанр - Оценка'. Пример: 'Rock - 5'")
+            rated_genres_count += 1
+            if rated_genres_count >= 5:
+                await update.message.reply_text("Вы оценили 5 жанров. Ура!")
+                await main_menu(update, context)
+            else:
+                await update.message.reply_text(f"Оцените ещё {5 - rated_genres_count} жанров.")
 
+        elif current_input_type == "artist":
+            artists = dataset["artist_name"].unique().tolist()
+            if name not in artists:
+                await update.message.reply_text(f"Исполнителя '{name}' нет в базе. Пожалуйста, выберите из списка.")
+                return
 
+            rated_artist_count = database.get_rated_artists_count(user_id)
+            if rated_artist_count >= 5:
+                await update.message.reply_text("Вы уже оценили 5 исполнителей. Больше оценивать нельзя.")
+                return
 
+            if database.check_artist_rating(user_id, name):
+                await update.message.reply_text(f"Вы уже оценили исполнителя '{name}'.")
+                return
 
+            database.add_artist_rating(user_id, user.username, name, rating)
+            await update.message.reply_text(f"Вы оценили исполнителя '{name}' на {rating}/5.")
 
-async def handle_artist_rating(update: Update, context: CallbackContext):
-    text = update.message.text
- 
-
-    try:
-      
-        track_artist, rating = text.split(" - ")
-        rating = int(rating)
-        track_artist = track_artist.strip() 
-
-        if rating < 1 or rating > 5:
-            await update.message.reply_text("Оценка должна быть от 1 до 5.")
-            return
-
-        
-        artists = dataset["artist_name"].unique().tolist()
-        if track_artist not in artists:
-            await update.message.reply_text(f"Исполнителя '{track_artist}' нет в базе. Пожалуйста, выберите из списка.")
-            return
-
-        user = update.message.from_user
-        user_id = user.id
-        user_username = user.username
-
-       
-        rated_artist_count = database.get_rated_artists_count(user_id)
-        if rated_artist_count >= 5:
-            await update.message.reply_text("Вы уже оценили 5 исполнителей. Больше оценивать нельзя.")
-            return
-
-        if database.check_artist_rating(user_id, track_artist):
-            await update.message.reply_text(f"Вы уже оценили исполнителя '{track_artist}'.")
-            return
-
-        database.add_artist_rating(user_id, user_username, track_artist, rating)
-        await update.message.reply_text(f"Вы оценили исполнителя  '{track_artist}' на {rating}/5.")
-
-        
-        rated_artist_count += 1
-        if rated_artist_count >= 5:
-            await update.message.reply_text("Вы оценили 5 исполнителей. Переходим к рекомендациям!")
-            await send_recommendation(update, context)
-        else:
-            await update.message.reply_text(f"Оцените ещё {5 - rated_artist_count} исполнителей.")
+            rated_artist_count += 1
+            if rated_artist_count >= 5:
+                await update.message.reply_text("Вы оценили 5 исполнителей. Ура!")
+           
+                await main_menu(update, context)
+            else:
+                await update.message.reply_text(f"Оцените ещё {5 - rated_artist_count} исполнителей.")
 
     except ValueError:
-        await update.message.reply_text("Ошибка формата. Используйте формат 'Жанр - Оценка'. Пример: 'Eminem - 5'")
+        await update.message.reply_text("Ошибка формата. Используйте формат 'Жанр/Исполнитель - Оценка'. Пример: 'Eminem - 5'")
 
 
+async def main_menu(update: Update, context: CallbackContext):
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        user = query.from_user 
+    else:
+        user = update.message.from_user 
+    
+    rated_genres_count = database.get_rated_genres_count(user.id)
+    rated_artists_count = database.get_rated_artists_count(user.id)
 
-
-
-async def send_main_menu(update: Update):
     keyboard = [
         [InlineKeyboardButton("Получить рекомендацию", callback_data="get_recommendation")],
         [InlineKeyboardButton("Посмотреть все оценки", callback_data="view_ratings")],
     ]
+
+    if rated_genres_count < 5:
+        keyboard.append([InlineKeyboardButton("Оценить жанры", callback_data="start_genre_survey")])
+
+    if rated_artists_count < 5:
+        keyboard.append([InlineKeyboardButton("Оценить исполнителей", callback_data="start_artist_survey")])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
-
-
-
+    if update.callback_query:
+        await query.edit_message_text("Выберите действие:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
 
 def get_random_track():
     random_index = random.randint(0, len(dataset) - 1)
@@ -283,16 +268,6 @@ async def rate_callback(update: Update, context: CallbackContext):
 
 
 
-async def show_next_step(query):
-    keyboard = [
-        [InlineKeyboardButton("Следующий трек", callback_data="get_recommendation")],
-        [InlineKeyboardButton("Главное меню", callback_data="main_menu")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text("Что вы хотите сделать дальше?", reply_markup=reply_markup)
-
-
 
 
 async def view_ratings(update: Update, context: CallbackContext):
@@ -331,17 +306,6 @@ async def view_ratings(update: Update, context: CallbackContext):
     await query.message.reply_text("Что вы хотите сделать дальше?", reply_markup=reply_markup)
 
 
-async def main_menu(update: Update, context: CallbackContext):
-    query = update.callback_query
-    await query.answer()
-
-    keyboard = [
-        [InlineKeyboardButton("Получить рекомендацию", callback_data="get_recommendation")],
-        [InlineKeyboardButton("Посмотреть все оценки", callback_data="view_ratings")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text("Выберите действие:", reply_markup=reply_markup)
-
 
 
 
@@ -353,9 +317,8 @@ def main():
     application.add_handler(CallbackQueryHandler(main_menu, pattern="^main_menu$"))
     application.add_handler(CallbackQueryHandler(view_ratings, pattern="^view_ratings$"))
     application.add_handler(CallbackQueryHandler(send_recommendation, pattern="^get_recommendation$"))
-    application.add_handler(MessageHandler(filters.TEXT, handle_genre_rating))
+    application.add_handler(MessageHandler(filters.TEXT, handle_rating))
     application.add_handler(CallbackQueryHandler(start_genre_survey, pattern="^start_genre_survey$")) 
-    application.add_handler(MessageHandler(filters.TEXT, handle_artist_rating))
     application.add_handler(CallbackQueryHandler(start_artist_survey, pattern="^start_artist_survey$")) 
     
 
