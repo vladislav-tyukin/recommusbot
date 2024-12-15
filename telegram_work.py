@@ -36,6 +36,7 @@ async def send_main_menu_new_user(update: Update):
     keyboard = [
         [InlineKeyboardButton("Получить рекомендацию", callback_data="get_recommendation")],
         [InlineKeyboardButton("Оценить жанры", callback_data="start_genre_survey")],
+        [InlineKeyboardButton("Оценить исполнителей", callback_data="start_artist_survey")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
@@ -56,6 +57,20 @@ async def start_genre_survey(update: Update, context: CallbackContext):
             f"Оцените жанры (в формате: 'Жанр - оценка'). Пример:\nRock - 5\n\nЖанры:\n{genres_text}"
         )
 
+
+async def start_artist_survey(update: Update, context: CallbackContext):
+    artists = dataset["artist_name"].unique().tolist()
+    artists_text = "\n".join([f"{artist}" for artist in artists])
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer() 
+        await query.message.reply_text(
+            f"Оцените исполителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
+        )
+    else:
+        await update.message.reply_text(
+            f"Оцените исполителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
+        )
 
 
 async def handle_genre_rating(update: Update, context: CallbackContext):
@@ -105,6 +120,61 @@ async def handle_genre_rating(update: Update, context: CallbackContext):
 
     except ValueError:
         await update.message.reply_text("Ошибка формата. Используйте формат 'Жанр - Оценка'. Пример: 'Rock - 5'")
+
+
+
+
+
+async def handle_artist_rating(update: Update, context: CallbackContext):
+    text = update.message.text
+ 
+
+    try:
+      
+        track_artist, rating = text.split(" - ")
+        rating = int(rating)
+        track_artist = track_artist.strip() 
+
+        if rating < 1 or rating > 5:
+            await update.message.reply_text("Оценка должна быть от 1 до 5.")
+            return
+
+        
+        artists = dataset["artist_name"].unique().tolist()
+        if track_artist not in artists:
+            await update.message.reply_text(f"Исполнителя '{track_artist}' нет в базе. Пожалуйста, выберите из списка.")
+            return
+
+        user = update.message.from_user
+        user_id = user.id
+        user_username = user.username
+
+       
+        rated_artist_count = database.get_rated_artists_count(user_id)
+        if rated_artist_count >= 5:
+            await update.message.reply_text("Вы уже оценили 5 исполнителей. Больше оценивать нельзя.")
+            return
+
+        if database.check_artist_rating(user_id, track_artist):
+            await update.message.reply_text(f"Вы уже оценили исполнителя '{track_artist}'.")
+            return
+
+        database.add_artist_rating(user_id, user_username, track_artist, rating)
+        await update.message.reply_text(f"Вы оценили исполнителя  '{track_artist}' на {rating}/5.")
+
+        
+        rated_artist_count += 1
+        if rated_artist_count >= 5:
+            await update.message.reply_text("Вы оценили 5 исполнителей. Переходим к рекомендациям!")
+            await send_recommendation(update, context)
+        else:
+            await update.message.reply_text(f"Оцените ещё {5 - rated_artist_count} исполнителей.")
+
+    except ValueError:
+        await update.message.reply_text("Ошибка формата. Используйте формат 'Жанр - Оценка'. Пример: 'Eminem - 5'")
+
+
+
 
 
 async def send_main_menu(update: Update):
@@ -161,7 +231,7 @@ async def send_recommendation(update: Update, context: CallbackContext):
 
 async def rate_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
+    await query.answer() #бот обработал нажатие кнопки.
 
 
     _, track_id, rating = query.data.split("_")
@@ -171,7 +241,7 @@ async def rate_callback(update: Update, context: CallbackContext):
     user_id = user.id
 
   
-    track = dataset[dataset["track_id"] == track_id].iloc[0]
+    track = dataset[dataset["track_id"] == track_id].iloc[0] #po znacheniyu v stroke 
     track_name = track["track_name"]
     track_artist = track["artist_name"]
     track_genre = track["genre"]
@@ -240,7 +310,7 @@ async def view_ratings(update: Update, context: CallbackContext):
     ratings_text = ""
     for track_id, track_genre, rating in ratings:
         
-        track = dataset[dataset["track_id"] == track_id]
+        track = dataset[dataset["track_id"] == track_id] #filter stroki 
         if not track.empty:
             track_name = track.iloc[0]["track_name"]
             track_genre = track.iloc[0]["genre"]
@@ -284,7 +354,10 @@ def main():
     application.add_handler(CallbackQueryHandler(view_ratings, pattern="^view_ratings$"))
     application.add_handler(CallbackQueryHandler(send_recommendation, pattern="^get_recommendation$"))
     application.add_handler(MessageHandler(filters.TEXT, handle_genre_rating))
-    application.add_handler(CallbackQueryHandler(start_genre_survey, pattern="^start_genre_survey$"))   
+    application.add_handler(CallbackQueryHandler(start_genre_survey, pattern="^start_genre_survey$")) 
+    application.add_handler(MessageHandler(filters.TEXT, handle_artist_rating))
+    application.add_handler(CallbackQueryHandler(start_artist_survey, pattern="^start_artist_survey$")) 
+    
 
 
     application.run_polling()

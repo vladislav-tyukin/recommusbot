@@ -30,6 +30,18 @@ def init_db():
                 UNIQUE(user_id, track_genre)
             )
         ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS artist_ratings (
+                rating_id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                track_artist INTEGER NOT NULL,
+                artist_rating INTEGER CHECK(artist_rating >= 1 AND artist_rating <= 5),
+                UNIQUE(user_id, track_artist)
+            )
+        ''')
+
         
 
 def add_rating(user_id, username, track_id, track_genre, rating):
@@ -80,8 +92,11 @@ def is_new_user(user_id):
         cursor.execute('SELECT COUNT(*) FROM genre_ratings WHERE user_id = ?', (user_id,))
         user_in_genre_ratings = cursor.fetchone()[0] > 0
 
-        return not (user_in_users_table or user_in_genre_ratings)
 
+        cursor.execute('SELECT COUNT(*) FROM artist_ratings WHERE user_id = ?', (user_id,))
+        user_in_artist_ratings = cursor.fetchone()[0] > 0
+
+        return not (user_in_users_table or user_in_genre_ratings or user_in_artist_ratings)
 
 
 
@@ -92,6 +107,8 @@ def get_all_ratings():
         cursor.execute('SELECT * FROM track_ratings')
         return cursor.fetchall()
 
+
+###
 
 
 def add_genre_rating(user_id, username, track_genre, genre_rating):
@@ -133,3 +150,48 @@ def get_rated_genres_count(user_id):
         cursor.execute('SELECT COUNT(DISTINCT track_genre) FROM genre_ratings WHERE user_id = ?', (user_id,))
         connection.commit()
         return cursor.fetchone()[0]
+
+###
+
+
+def add_artist_rating(user_id, username, track_artist, artist_rating):
+    with sqlite3.connect(DB_PATH) as connection:
+        try:
+            cursor = connection.cursor()
+            cursor.execute('INSERT INTO artist_ratings (user_id, username, track_artist, artist_rating) VALUES (?, ?, ?, ?)', (user_id, username, track_artist, artist_rating))
+            connection.commit()
+        except sqlite3.IntegrityError:
+            raise ValueError('Add genre rating error')
+        
+
+def get_all_artist_ratings():
+    with sqlite3.connect(DB_PATH) as connection:
+        cursor = connection.cursor()
+        cursor.execute('SELECT * FROM artist_ratings')
+        return cursor.fetchall()
+
+
+
+def get_artist_rating(user_id):
+    with sqlite3.connect(DB_PATH) as connection:
+        cursor = connection.cursor()
+        cursor.execute('SELECT track_artist, artist_rating FROM artist_ratings WHERE user_id = ?', (user_id))
+        connection.commit()
+        return cursor.fetchall()
+
+
+def check_artist_rating(user_id, track_artist):
+    with sqlite3.connect(DB_PATH) as connection:
+        cursor = connection.cursor()
+        cursor.execute('SELECT 1 FROM artist_ratings WHERE user_id = ? AND track_artist = ? LIMIT 1', (user_id, track_artist))
+        connection.commit()
+        return cursor.fetchone()
+
+
+def get_rated_artists_count(user_id):
+    with sqlite3.connect(DB_PATH) as connection:
+        cursor = connection.cursor()
+        cursor.execute('SELECT COUNT(DISTINCT track_artist) FROM artist_ratings WHERE user_id = ?', (user_id,))
+        connection.commit()
+        return cursor.fetchone()[0]
+
