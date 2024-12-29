@@ -3,23 +3,48 @@ import database
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, CallbackContext, MessageHandler, filters
 import pandas as pd
-import random
 from token_tg import token_teleg
+from sklearn.preprocessing import MinMaxScaler
+import model_db  
+from model_db import clean_genre, clean_artist, get_recommended_track_for_user
 
-#update — объект, который содержит всю информацию о событии, пришедшем от пользователя (например, сообщение или callback-запрос).
-#callback_query — это объект, который содержится в update и представляет собой запрос, возникший от нажатия пользователем кнопки inline.
-#query — это сокращение для объекта callback_query, которое используется в коде для упрощения.
-
-DATASET_PATH = "SpotifyFeatures.csv"
 database.init_db()
 
 def load_dataset():
-    return pd.read_csv(DATASET_PATH)
+    return pd.read_csv("SpotifyFeatures.csv")
 
 dataset = load_dataset()
+dataset2 = load_dataset()
+
+columns_to_drop = ['energy', 'danceability', 'explicit', 'duration_ms']
+dataset = dataset.drop(columns=columns_to_drop)
+
+dataset = dataset.drop_duplicates(subset='track_id')
+dataset2 = dataset2.drop_duplicates(subset='track_id')
+
+dataset['genre'] = dataset['genre'].apply(clean_genre)
+dataset = dataset.dropna(subset=['genre'])
+
+dataset['artist_name'] = dataset['artist_name'].apply(clean_artist)
+dataset = dataset.dropna(subset=['artist_name'])
+
+# нормализация популярности
+scaler = MinMaxScaler(feature_range=(0, 1))
+dataset['normalized_popularity'] = scaler.fit_transform(dataset[['popularity']])
+dataset = dataset[dataset['normalized_popularity'] > 0]
+
+# формирование маппингов для артистов, жанров и треков
+genre_popularity = dataset.groupby('genre')['normalized_popularity'].mean().reset_index().sort_values('normalized_popularity')
+artist_popularity = dataset.groupby('artist_name')['normalized_popularity'].mean().reset_index().sort_values('normalized_popularity')
+track_popularity = dataset.groupby('track_name')['normalized_popularity'].mean().reset_index().sort_values('normalized_popularity')
+
+artist_numeric_mapping = {artist: idx + 1 for idx, artist in enumerate(artist_popularity['artist_name'])}
+genre_numeric_mapping = {genre: idx + 1 for idx, genre in enumerate(genre_popularity['genre'])}
+track_numeric_mapping = {track: idx + 1 for idx, track in enumerate(track_popularity['track_name'])}
+
+
 
 current_input_type = None
-
 
 async def start(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -32,9 +57,6 @@ async def start(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text(f"С возвращением, {username}! Продолжим с рекомендациями.")
         await main_menu(update, context)
-
-
-
 
 async def start_genre_survey(update: Update, context: CallbackContext):
     global current_input_type
@@ -54,7 +76,6 @@ async def start_genre_survey(update: Update, context: CallbackContext):
             f"Оцените жанры (в формате: 'Жанр - оценка'). Пример:\nRock - 5\n\nЖанры:\n{genres_text}"
         )
 
-
 async def start_artist_survey(update: Update, context: CallbackContext):
     global current_input_type
     current_input_type = "artist"
@@ -72,7 +93,6 @@ async def start_artist_survey(update: Update, context: CallbackContext):
         await update.message.reply_text(
             f"Оцените исполнителей(в формате 'Автор - оценка'). Пример:\nEminem - 5\n\nИсполнители:\n{artists_text}"
         )
-
 
 async def handle_rating(update: Update, context: CallbackContext):
     global current_input_type
@@ -173,9 +193,11 @@ async def main_menu(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
 
-def get_random_track():
-    random_index = random.randint(0, len(dataset) - 1)
-    track = dataset.iloc[random_index]
+def get_track_info(track_name):
+    track = dataset2[dataset2["track_name"] == track_name]
+    if track.empty:
+        return None
+    track = track.iloc[0]
     return {
         "id": track["track_id"],
         "name": track["track_name"],
@@ -184,13 +206,14 @@ def get_random_track():
         "link": f"https://open.spotify.com/track/{track['track_id']}",
     }
 
-
-
-
-
 async def send_recommendation(update: Update, context: CallbackContext):
-    track = get_random_track()
+    user = update.effective_user
+    user_id = user.id
 
+    track = get_recommended_track_for_user(user_id, dataset, artist_numeric_mapping=artist_numeric_mapping,
+                                           genre_numeric_mapping=genre_numeric_mapping, track_numeric_mapping=track_numeric_mapping)
+
+    print(track['id'])
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"rate_{track['id']}_{i}") for i in range(1, 6)],
         [InlineKeyboardButton("Главное меню", callback_data="main_menu")]
@@ -213,26 +236,22 @@ async def send_recommendation(update: Update, context: CallbackContext):
 
 
 
-
 async def rate_callback(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer() #бот обработал нажатие кнопки.
-
-
+    await query.answer()  
+    
     _, track_id, rating = query.data.split("_")
     rating = int(rating)
 
     user = query.from_user
     user_id = user.id
 
-  
-    track = dataset[dataset["track_id"] == track_id].iloc[0] #po znacheniyu v stroke 
+    track = dataset2[dataset2["track_id"] == track_id].iloc[0]  
     track_name = track["track_name"]
     track_artist = track["artist_name"]
     track_genre = track["genre"]
     track_link = f"https://open.spotify.com/track/{track_id}"
 
-  
     if database.check_rating(user_id, track_id):
         try:
             database.update_rating(user_id, track_id, rating)
@@ -244,7 +263,6 @@ async def rate_callback(update: Update, context: CallbackContext):
         except ValueError as e:
             await query.edit_message_text(f"Ошибка: {e}")
 
-    
     rating_text = f"Ваша оценка для этого трека: {rating}/5"
 
     keyboard = [
@@ -253,20 +271,15 @@ async def rate_callback(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-   
     await query.edit_message_text(
         f"🎵 *{track_name}* - {track_artist}\nЖанр: {track_genre}\n[Слушать трек]({track_link})\n\n{rating_text}",
         parse_mode="Markdown",
         reply_markup=reply_markup
     )
 
-   
     await asyncio.sleep(1)
 
-    
     await send_recommendation(update, context)
-
-
 
 
 
@@ -275,7 +288,6 @@ async def view_ratings(update: Update, context: CallbackContext):
     user_id = user.id
     query = update.callback_query
 
-  
     ratings = database.get_user_ratings(user_id)
 
     if not ratings:
@@ -284,8 +296,7 @@ async def view_ratings(update: Update, context: CallbackContext):
 
     ratings_text = ""
     for track_id, track_genre, rating in ratings:
-        
-        track = dataset[dataset["track_id"] == track_id] #filter stroki 
+        track = dataset2[dataset2["track_id"] == track_id] 
         if not track.empty:
             track_name = track.iloc[0]["track_name"]
             track_genre = track.iloc[0]["genre"]
@@ -294,20 +305,14 @@ async def view_ratings(update: Update, context: CallbackContext):
         else:
             ratings_text += f"❓ Трек ID: {track_id} (не найден в датасете), Ваша оценка: {rating}/5\n"
 
-
     await query.message.reply_text(
         f"Ваши оценки:\n{ratings_text}",
         parse_mode="Markdown"
     )
 
-    
     keyboard = [[InlineKeyboardButton("Главное меню", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.message.reply_text("Что вы хотите сделать дальше?", reply_markup=reply_markup)
-
-
-
-
 
 def main():
     application = Application.builder().token(token_teleg).build()
@@ -320,9 +325,8 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT, handle_rating))
     application.add_handler(CallbackQueryHandler(start_genre_survey, pattern="^start_genre_survey$")) 
     application.add_handler(CallbackQueryHandler(start_artist_survey, pattern="^start_artist_survey$")) 
-    
 
-
+   
     application.run_polling()
 
 if __name__ == "__main__":
