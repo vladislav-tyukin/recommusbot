@@ -115,7 +115,7 @@ def add_genre_rating(user_id, username, track_genre, genre_rating):
     with sqlite3.connect(DB_PATH) as connection:
         try:
             cursor = connection.cursor()
-            cursor.execute('INSERT INTO genre_ratings (user_id, username, track_genre, genre_rating) VALUES (?, ?, ?, ?)', (user_id, username, track_genre, genre_rating))
+            cursor.execute('INSERT INTO genre_ratings (user_id, username, track_genre, genre_rating) VALUES (?, ?, ?, ?)', (user_id, username, track_genre, genre_rating,))
             connection.commit()
         except sqlite3.IntegrityError:
             raise ValueError('Add genre rating error')
@@ -132,7 +132,7 @@ def get_all_genre_ratings():
 def get_genre_rating(user_id):
     with sqlite3.connect(DB_PATH) as connection:
         cursor = connection.cursor()
-        cursor.execute('SELECT track_genre, genre_rating FROM genre_ratings WHERE user_id = ?', (user_id))
+        cursor.execute('SELECT track_genre, genre_rating FROM genre_ratings WHERE user_id = ?', (user_id,))
         connection.commit()
         return cursor.fetchall()
 
@@ -140,7 +140,7 @@ def get_genre_rating(user_id):
 def check_genre_rating(user_id, track_genre):
     with sqlite3.connect(DB_PATH) as connection:
         cursor = connection.cursor()
-        cursor.execute('SELECT 1 FROM genre_ratings WHERE user_id = ? AND track_genre = ? LIMIT 1', (user_id, track_genre))
+        cursor.execute('SELECT 1 FROM genre_ratings WHERE user_id = ? AND track_genre = ? LIMIT 1', (user_id, track_genre,))
         connection.commit()
         return cursor.fetchone()
 
@@ -158,7 +158,7 @@ def add_artist_rating(user_id, username, track_artist, artist_rating):
     with sqlite3.connect(DB_PATH) as connection:
         try:
             cursor = connection.cursor()
-            cursor.execute('INSERT INTO artist_ratings (user_id, username, track_artist, artist_rating) VALUES (?, ?, ?, ?)', (user_id, username, track_artist, artist_rating))
+            cursor.execute('INSERT INTO artist_ratings (user_id, username, track_artist, artist_rating) VALUES (?, ?, ?, ?)', (user_id, username, track_artist, artist_rating,))
             connection.commit()
         except sqlite3.IntegrityError:
             raise ValueError('Add genre rating error')
@@ -175,7 +175,7 @@ def get_all_artist_ratings():
 def get_artist_rating(user_id):
     with sqlite3.connect(DB_PATH) as connection:
         cursor = connection.cursor()
-        cursor.execute('SELECT track_artist, artist_rating FROM artist_ratings WHERE user_id = ?', (user_id))
+        cursor.execute('SELECT track_artist, artist_rating FROM artist_ratings WHERE user_id = ?', (user_id,))
         connection.commit()
         return cursor.fetchall()
 
@@ -183,7 +183,7 @@ def get_artist_rating(user_id):
 def check_artist_rating(user_id, track_artist):
     with sqlite3.connect(DB_PATH) as connection:
         cursor = connection.cursor()
-        cursor.execute('SELECT 1 FROM artist_ratings WHERE user_id = ? AND track_artist = ? LIMIT 1', (user_id, track_artist))
+        cursor.execute('SELECT 1 FROM artist_ratings WHERE user_id = ? AND track_artist = ? LIMIT 1', (user_id, track_artist,))
         connection.commit()
         return cursor.fetchone()
 
