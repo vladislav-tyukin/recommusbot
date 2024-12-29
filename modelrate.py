@@ -379,37 +379,43 @@ def compute_precision_recall_at_k(test_df, predicted_ratings, k=5, relevant_thre
 # ============================================================
 # Цикл рекомендаций
 # ============================================================
-user_id = int(input("Введите id пользователя: "))
+def main():
+    user_id_input = input("Введите id пользователя: ")
 
-user_df = get_user_ratings_df_from_db(user_id, df, artist_numeric_mapping, genre_numeric_mapping, track_numeric_mapping)
+    user_id = int(user_id_input)       
+    
+    user_df = get_user_ratings_df_from_db(
+                    user_id, df, artist_numeric_mapping, genre_numeric_mapping, track_numeric_mapping
+                )
+    if user_df.empty:
+        print(f"Нет данных для пользователя с ID {user_id}. Попробуйте другой ID.")
+    
+    train_df = user_df.sample(frac=0.7, random_state=42)
+    test_df = user_df.drop(train_df.index)
+    
+    model = train_model(df, train_df, artist_numeric_mapping, genre_numeric_mapping, track_numeric_mapping)
+    
+    merged_test = pd.merge(
+        test_df,
+        df[['artist_name', 'genre', 'track_name', 'normalized_popularity']],
+        on=['artist_name', 'genre', 'track_name'],
+        how='left'
+            )
+    
+    merged_test['artist_id'] = merged_test['artist_name'].map(artist_numeric_mapping)
+    merged_test['genre_id'] = merged_test['genre'].map(genre_numeric_mapping)
+    merged_test['track_id'] = merged_test['track_name'].map(track_numeric_mapping)
+
+    X_test = merged_test[['normalized_popularity', 'artist_id', 'genre_id', 'track_id']].values
+    predicted_test_ratings = model.predict(X_test)
+    actual_test_ratings = merged_test['user_track_rating'].fillna(3).values
 
 
+    rmse = compute_rmse(actual_test_ratings, predicted_test_ratings)
+    precision, recall = compute_precision_recall_at_k(merged_test, predicted_test_ratings, k=5, relevant_threshold=4)
 
-train_df = user_df.sample(frac=0.7, random_state=42)
-test_df = user_df.drop(train_df.index)
 
-model = train_model(df, train_df, artist_numeric_mapping, genre_numeric_mapping, track_numeric_mapping)
-
-merged_test = pd.merge(
-    test_df,
-    df[['artist_name', 'genre', 'track_name', 'normalized_popularity']],
-    on=['artist_name', 'genre', 'track_name'],
-    how='left'
-)
-
-merged_test['artist_id'] = merged_test['artist_name'].map(artist_numeric_mapping)
-merged_test['genre_id'] = merged_test['genre'].map(genre_numeric_mapping)
-merged_test['track_id'] = merged_test['track_name'].map(track_numeric_mapping)
-
-X_test = merged_test[['normalized_popularity', 'artist_id', 'genre_id', 'track_id']].values
-predicted_test_ratings = model.predict(X_test)
-actual_test_ratings = merged_test['user_track_rating'].fillna(3).values
-
-rmse = compute_rmse(actual_test_ratings, predicted_test_ratings)
-precision, recall = compute_precision_recall_at_k(merged_test, predicted_test_ratings, k=5, relevant_threshold=4)
-
-print("Результаты оценки модели:")
-print("RMSE:", rmse)
-print("Precision@5:", precision)
-print("Recall@5:", recall)
-print("Конец программы")
+    print("Результаты оценки модели:")
+    print("RMSE:", rmse)
+    print("Precision@5:", precision)
+    print("Recall@5:", recall)
